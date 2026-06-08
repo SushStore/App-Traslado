@@ -1,112 +1,205 @@
 """
-clima.py — Módulo de clima usando wttr.in (100% gratuito, sin API key).
-Hace scraping/consulta JSON ligera a wttr.in que no requiere registro.
+data.py — Configuración central de perfiles, destinos y rutas.
+Los destinos del usuario se guardan en destinos_usuario.json (editable desde la app).
 """
 
-import requests
-from datetime import datetime
-from typing import Optional
+import json
+import os
 
-TIMEOUT = 6  # segundos máximo de espera
+# ── RUTA DEL ARCHIVO DE DESTINOS PERSONALIZADOS ───────────────────────────────
+DIR_BASE = os.path.dirname(os.path.abspath(__file__))
+DESTINOS_JSON = os.path.join(DIR_BASE, "destinos_usuario.json")
 
-# Códigos de condición que indican lluvia según wttr.in WMO
-CODIGOS_LLUVIA_LEVE  = {61, 63, 80, 81}     # lluvia ligera / chubascos
-CODIGOS_LLUVIA_FUERTE = {65, 67, 82, 95, 96, 99}  # lluvia fuerte / tormenta
+# ── PERFILES DE USUARIO ────────────────────────────────────────────────────────
+USUARIOS = {
+    "🧑 Tú (Ecatepec)": {
+        "nombre": "Tú",
+        "origen_nombre": "Ecatepec de Morelos, Edomex",
+        # Coordenadas exactas proporcionadas
+        "origen_coords": "19.620372530297708,-99.0552915302304",
+        "ciudad_clima": "Ecatepec de Morelos",
+        "ciudad_wttr": "Ecatepec+de+Morelos",
+        "origen_abrev": "Ecatepec",
+        # Transporte público principal
+        "transporte": {
+            "modo_principal": "Mexibús + Metro",
+            "descripcion": "Mexibús DIF → Metro (Línea 6 / correspondencia)",
+            "estacion_metro_cercana": "Villa de Aragón / Martín Carrera",
+            "lineas_metro": ["Línea 6 (Rosa)", "Línea 3 (Verde) vía correspondencia"],
+            "tiempo_caminata_estacion_min": 8,   # minutos a pie hasta Mexibús DIF
+            "tiempo_mexibus_metro_min": 25,       # Mexibús DIF → estación de metro
+            "notas": "El Mexibús DIF opera 5:00–23:00. En lluvia fuerte puede haber demoras de 15–30 min.",
+        },
+        "vias_principales": [
+            "Av. Central (Mexibús)",
+            "Vía Morelos",
+            "Autopista México-Pachuca",
+            "Insurgentes Norte",
+        ],
+    },
+    "👩 Ella (Tecámac)": {
+        "nombre": "Ella",
+        "origen_nombre": "Tecámac, Edomex",
+        # Coordenadas exactas proporcionadas
+        "origen_coords": "19.642003450943857,-99.03477021868001",
+        "ciudad_clima": "Tecámac",
+        "ciudad_wttr": "Tecamac",
+        "origen_abrev": "Tecámac",
+        # Transporte público principal
+        "transporte": {
+            "modo_principal": "Combi + Metro",
+            "descripcion": "Combi Tecámac → Indios Verdes → Metro",
+            "estacion_metro_cercana": "Indios Verdes (Línea 3)",
+            "lineas_metro": ["Línea 3 (Verde)"],
+            "tiempo_caminata_estacion_min": 5,
+            "tiempo_combi_metro_min": 40,         # Combi Tecámac → Indios Verdes
+            "notas": "Combis frecuentes 5:30–22:00. Ruta: Tecámac → López Portillo → Indios Verdes.",
+        },
+        "vias_principales": [
+            "Autopista México-Pachuca",
+            "Av. López Portillo",
+            "Periférico Norte",
+            "Insurgentes Norte",
+        ],
+    },
+}
+
+# ── DESTINOS PREDETERMINADOS (se muestran si no hay JSON personalizado) ────────
+DESTINOS_DEFAULT = {
+    "🏛️ Centro Histórico": {
+        "coords": "19.4326,-99.1332",
+        "nombre_completo": "Centro Histórico, Ciudad de México",
+        "zona": "Centro",
+        "estacion_metro_destino": "Zócalo (Línea 2)",
+        # Tiempo TOTAL en transporte público: caminar + combi/mexibús + metro + caminar al destino
+        "tiempo_tp_min": {"Ecatepec": 75, "Tecámac": 95},
+    },
+    "💼 Polanco": {
+        "coords": "19.4325,-99.1958",
+        "nombre_completo": "Polanco, Miguel Hidalgo, CDMX",
+        "zona": "Poniente",
+        "estacion_metro_destino": "Polanco (Línea 7)",
+        "tiempo_tp_min": {"Ecatepec": 90, "Tecámac": 110},
+    },
+    "🎓 UNAM / Ciudad Universitaria": {
+        "coords": "19.3326,-99.1870",
+        "nombre_completo": "Ciudad Universitaria, Coyoacán, CDMX",
+        "zona": "Sur",
+        "estacion_metro_destino": "Copilco / Universidad (Línea 3)",
+        "tiempo_tp_min": {"Ecatepec": 110, "Tecámac": 125},
+    },
+    "✈️ AICM (Aeropuerto)": {
+        "coords": "19.4363,-99.0721",
+        "nombre_completo": "Aeropuerto Internacional Ciudad de México",
+        "zona": "Oriente",
+        "estacion_metro_destino": "Terminal Aérea (Línea 5)",
+        "tiempo_tp_min": {"Ecatepec": 65, "Tecámac": 80},
+    },
+    "🎭 Coyoacán": {
+        "coords": "19.3500,-99.1628",
+        "nombre_completo": "Coyoacán, Ciudad de México",
+        "zona": "Sur",
+        "estacion_metro_destino": "Viveros (Línea 3)",
+        "tiempo_tp_min": {"Ecatepec": 100, "Tecámac": 120},
+    },
+    "🛒 Plaza Lindavista": {
+        "coords": "19.4756,-99.1311",
+        "nombre_completo": "Plaza Lindavista, Gustavo A. Madero, CDMX",
+        "zona": "Norte",
+        "estacion_metro_destino": "Deportivo 18 de Marzo (Línea 3/6)",
+        "tiempo_tp_min": {"Ecatepec": 55, "Tecámac": 70},
+    },
+    "🏢 Roma / Insurgentes Sur": {
+        "coords": "19.4100,-99.1700",
+        "nombre_completo": "Colonia Roma, Cuauhtémoc, CDMX",
+        "zona": "Centro Sur",
+        "estacion_metro_destino": "Insurgentes (Línea 1)",
+        "tiempo_tp_min": {"Ecatepec": 90, "Tecámac": 110},
+    },
+    "🏥 Hospital General": {
+        "coords": "19.4180,-99.1495",
+        "nombre_completo": "Hospital General de México, CDMX",
+        "zona": "Centro Sur",
+        "estacion_metro_destino": "Niños Héroes (Línea 3)",
+        "tiempo_tp_min": {"Ecatepec": 85, "Tecámac": 105},
+    },
+}
+
+# ── EMOJIS DISPONIBLES PARA DESTINOS PERSONALIZADOS ──────────────────────────
+EMOJIS_DESTINO = [
+    "📍","🏠","🏢","🏥","🎓","🛍️","🍽️","🎭","💼","🏋️",
+    "💇","🏪","🎮","🌳","⛪","🏨","🏦","🚉","🎪","🛒",
+]
+
+# ── FUNCIONES DE PERSISTENCIA ──────────────────────────────────────────────────
+
+def cargar_destinos() -> dict:
+    """Carga destinos desde JSON; si no existe usa los predeterminados."""
+    if os.path.exists(DESTINOS_JSON):
+        try:
+            with open(DESTINOS_JSON, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # Primera vez: guarda los default
+    guardar_destinos(DESTINOS_DEFAULT)
+    return dict(DESTINOS_DEFAULT)
 
 
-def obtener_clima(ciudad_wttr: str) -> dict:
-    """
-    Consulta wttr.in en formato JSON para una ciudad.
-    Retorna dict con: temp_c, descripcion, lluvia_mm, lluvia_nivel, icono, error
-    """
-    url = f"https://wttr.in/{ciudad_wttr}?format=j1"
-    resultado = {
-        "temp_c": None,
-        "descripcion": "Sin datos",
-        "lluvia_mm": 0.0,
-        "lluvia_nivel": "ninguna",   # ninguna | leve | fuerte
-        "icono": "❓",
-        "humedad": None,
-        "viento_kmh": None,
-        "pronostico_horas": [],
-        "error": None,
+def guardar_destinos(destinos: dict) -> None:
+    """Persiste el dict de destinos en JSON."""
+    with open(DESTINOS_JSON, "w", encoding="utf-8") as f:
+        json.dump(destinos, f, ensure_ascii=False, indent=2)
+
+
+def agregar_destino(nombre: str, coords: str, nombre_completo: str,
+                    zona: str, estacion: str,
+                    tiempo_ecatepec: int, tiempo_tecamac: int) -> dict:
+    """Agrega un nuevo destino y lo persiste."""
+    destinos = cargar_destinos()
+    destinos[nombre] = {
+        "coords": coords,
+        "nombre_completo": nombre_completo,
+        "zona": zona,
+        "estacion_metro_destino": estacion,
+        "tiempo_tp_min": {"Ecatepec": tiempo_ecatepec, "Tecámac": tiempo_tecamac},
     }
-
-    try:
-        resp = requests.get(url, timeout=TIMEOUT, headers={"User-Agent": "TrasladorMetro/1.0"})
-        resp.raise_for_status()
-        data = resp.json()
-
-        actual = data["current_condition"][0]
-        resultado["temp_c"]    = int(actual["temp_C"])
-        resultado["humedad"]   = int(actual["humidity"])
-        resultado["viento_kmh"] = int(actual["windspeedKmph"])
-        resultado["descripcion"] = actual["weatherDesc"][0]["value"]
-        resultado["icono"]     = _icono_clima(resultado["descripcion"])
-
-        # Precipitación acumulada próximas horas (wttr.in campo precipMM)
-        hoy = data["weather"][0]
-        lluvia_total = 0.0
-        pronostico = []
-
-        for hora in hoy["hourly"]:
-            h_val = int(hora["time"]) // 100
-            mm    = float(hora.get("precipMM", 0))
-            lluvia_total += mm
-            desc  = hora["weatherDesc"][0]["value"]
-            pronostico.append({
-                "hora": f"{h_val:02d}:00",
-                "temp":  int(hora["tempC"]),
-                "mm":    mm,
-                "desc":  desc,
-                "icono": _icono_clima(desc),
-            })
-
-        resultado["lluvia_mm"]        = round(lluvia_total, 1)
-        resultado["pronostico_horas"] = pronostico
-        resultado["lluvia_nivel"]     = _nivel_lluvia(lluvia_total, resultado["descripcion"])
-
-    except requests.exceptions.Timeout:
-        resultado["error"] = "⏱️ Tiempo de espera agotado"
-    except requests.exceptions.ConnectionError:
-        resultado["error"] = "🔌 Sin conexión a internet"
-    except Exception as e:
-        resultado["error"] = f"⚠️ Error: {str(e)[:60]}"
-
-    return resultado
+    guardar_destinos(destinos)
+    return destinos
 
 
-def _nivel_lluvia(mm: float, descripcion: str) -> str:
-    """Determina nivel de lluvia según mm acumulados y descripción."""
-    desc_lower = descripcion.lower()
-    palabras_fuerte = ["heavy", "thunder", "storm", "torrential", "blizzard", "fuerte", "tormenta"]
-    palabras_leve   = ["light", "drizzle", "rain", "shower", "llovizna", "lluvia", "chubasco"]
-
-    if any(p in desc_lower for p in palabras_fuerte) or mm > 10:
-        return "fuerte"
-    if any(p in desc_lower for p in palabras_leve) or mm > 2:
-        return "leve"
-    return "ninguna"
+def eliminar_destino(nombre: str) -> dict:
+    """Elimina un destino y persiste."""
+    destinos = cargar_destinos()
+    destinos.pop(nombre, None)
+    guardar_destinos(destinos)
+    return destinos
 
 
-def _icono_clima(desc: str) -> str:
-    """Mapea descripción en inglés/español a emoji."""
-    d = desc.lower()
-    if any(k in d for k in ["thunder", "storm", "tormenta"]):  return "⛈️"
-    if any(k in d for k in ["heavy rain", "torrential"]):       return "🌧️"
-    if any(k in d for k in ["light rain", "drizzle", "llovizna"]): return "🌦️"
-    if any(k in d for k in ["shower", "rain", "lluvia", "chubasco"]): return "🌧️"
-    if any(k in d for k in ["fog", "mist", "niebla", "neblina"]):    return "🌫️"
-    if any(k in d for k in ["overcast", "nublado", "cloudy"]):       return "☁️"
-    if any(k in d for k in ["partly", "parcial"]):                   return "⛅"
-    if any(k in d for k in ["clear", "sunny", "despejado", "sol"]):  return "☀️"
-    return "🌡️"
+def editar_destino(nombre_original: str, nombre_nuevo: str, datos: dict) -> dict:
+    """Renombra y/o actualiza datos de un destino."""
+    destinos = cargar_destinos()
+    destinos.pop(nombre_original, None)
+    destinos[nombre_nuevo] = datos
+    guardar_destinos(destinos)
+    return destinos
 
+# ── FACTORES DE TRÁFICO / FRECUENCIA TRANSPORTE PÚBLICO ──────────────────────
+# Para TP el factor afecta principalmente la frecuencia de combis/mexibús y saturación del metro
 
-def alerta_lluvia(nivel: str) -> Optional[str]:
-    """Devuelve mensaje de alerta si hay lluvia significativa."""
-    if nivel == "fuerte":
-        return "🚨 LLUVIA FUERTE esperada — considera salir antes o retrasar el viaje 30-45 min"
-    if nivel == "leve":
-        return "🌦️ Lluvia leve posible — lleva paraguas y suma ~15 min al tiempo estimado"
-    return None
+TRAFICO_HORA = {
+    0: 1.0,  1: 1.0,  2: 1.0,  3: 1.0,  4: 1.05,
+    5: 1.1,  6: 1.35, 7: 1.7,  8: 2.0,  # Mañana pico — metro saturado
+    9: 1.7,  10: 1.4, 11: 1.2, 12: 1.2,
+    13: 1.3, 14: 1.5, 15: 1.45,16: 1.5,
+    17: 1.8, 18: 2.1, 19: 1.9, # Tarde pico
+    20: 1.5, 21: 1.25,22: 1.1, 23: 1.0,
+}
+
+FACTOR_LLUVIA_LEVE   = 1.20   # Combis más tardados, esperas más largas
+FACTOR_LLUVIA_FUERTE = 1.45   # Caos en combis y metro saturado
+
+WAZE_BASE  = "https://www.waze.com/ul?ll={dest}&navigate=yes&from=ll.{orig}"
+GMAPS_BASE = "https://www.google.com/maps/dir/{orig}/{dest}/"
+# Google Maps con modo transporte público forzado
+GMAPS_TP_BASE = "https://www.google.com/maps/dir/{orig}/{dest}/data=!3m1!4b1!4m2!4m1!3e3"
