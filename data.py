@@ -1,117 +1,112 @@
 """
-data.py — Configuración central de perfiles, destinos y rutas.
-Edita este archivo para personalizar tus destinos frecuentes.
+clima.py — Módulo de clima usando wttr.in (100% gratuito, sin API key).
+Hace scraping/consulta JSON ligera a wttr.in que no requiere registro.
 """
 
-# ── PERFILES DE USUARIO ────────────────────────────────────────────────────────
-USUARIOS = {
-    "🧑 Tú (Ecatepec)": {
-        "nombre": "Tú",
-        "origen_nombre": "Ecatepec de Morelos, Edomex",
-        "origen_coords": "19.6017,-98.9917",
-        "ciudad_clima": "Ecatepec de Morelos",
-        "ciudad_wttr": "Ecatepec+de+Morelos",
-        "vias_principales": [
-            "Autopista México-Pachuca (Arco Norte)",
-            "Vía Morelos",
-            "Av. Central / Insurgentes Norte",
-            "Circuito Exterior Mexiquense",
-        ],
-    },
-    "👩 Ella (Tecámac)": {
-        "nombre": "Ella",
-        "origen_nombre": "Tecámac, Edomex",
-        "origen_coords": "19.7167,-98.9667",
-        "ciudad_clima": "Tecámac",
-        "ciudad_wttr": "Tecamac",
-        "vias_principales": [
-            "Autopista México-Pachuca",
-            "Av. López Portillo",
-            "Circuito Exterior Mexiquense",
-            "Periférico Norte",
-        ],
-    },
-}
+import requests
+from datetime import datetime
+from typing import Optional
 
-# ── DESTINOS FRECUENTES EN CDMX ───────────────────────────────────────────────
-DESTINOS = {
-    "🏛️ Centro Histórico": {
-        "coords": "19.4326,-99.1332",
-        "nombre_completo": "Centro Histórico, Ciudad de México",
-        "zona": "Centro",
-        "tiempo_base_min": {"Ecatepec": 55, "Tecámac": 70},   # minutos sin tráfico
-    },
-    "💼 Polanco": {
-        "coords": "19.4325,-99.1958",
-        "nombre_completo": "Polanco, Miguel Hidalgo, CDMX",
-        "zona": "Poniente",
-        "tiempo_base_min": {"Ecatepec": 65, "Tecámac": 80},
-    },
-    "🎓 UNAM / Ciudad Universitaria": {
-        "coords": "19.3326,-99.1870",
-        "nombre_completo": "Ciudad Universitaria, Coyoacán, CDMX",
-        "zona": "Sur",
-        "tiempo_base_min": {"Ecatepec": 80, "Tecámac": 95},
-    },
-    "🛍️ Santa Fe": {
-        "coords": "19.3588,-99.2603",
-        "nombre_completo": "Santa Fe, Cuajimalpa, CDMX",
-        "zona": "Poniente",
-        "tiempo_base_min": {"Ecatepec": 90, "Tecámac": 105},
-    },
-    "🏥 Hospital General (Dr. Balmis)": {
-        "coords": "19.4180,-99.1495",
-        "nombre_completo": "Hospital General de México, CDMX",
-        "zona": "Centro Sur",
-        "tiempo_base_min": {"Ecatepec": 60, "Tecámac": 75},
-    },
-    "✈️ AICM (Aeropuerto)": {
-        "coords": "19.4363,-99.0721",
-        "nombre_completo": "Aeropuerto Internacional Ciudad de México",
-        "zona": "Oriente",
-        "tiempo_base_min": {"Ecatepec": 40, "Tecámac": 55},
-    },
-    "🎭 Coyoacán": {
-        "coords": "19.3500,-99.1628",
-        "nombre_completo": "Coyoacán, Ciudad de México",
-        "zona": "Sur",
-        "tiempo_base_min": {"Ecatepec": 75, "Tecámac": 90},
-    },
-    "🛒 Plaza Lindavista": {
-        "coords": "19.4756,-99.1311",
-        "nombre_completo": "Plaza Lindavista, Gustavo A. Madero, CDMX",
-        "zona": "Norte",
-        "tiempo_base_min": {"Ecatepec": 45, "Tecámac": 60},
-    },
-    "🏢 Insurgentes Sur / Roma": {
-        "coords": "19.4100,-99.1700",
-        "nombre_completo": "Colonia Roma, Cuauhtémoc, CDMX",
-        "zona": "Centro Sur",
-        "tiempo_base_min": {"Ecatepec": 65, "Tecámac": 80},
-    },
-    "🌳 Xochimilco": {
-        "coords": "19.2570,-99.1035",
-        "nombre_completo": "Xochimilco, Ciudad de México",
-        "zona": "Sur",
-        "tiempo_base_min": {"Ecatepec": 90, "Tecámac": 105},
-    },
-}
+TIMEOUT = 6  # segundos máximo de espera
 
-# ── MULTIPLICADORES DE TRÁFICO POR HORA ───────────────────────────────────────
-# Factor que multiplica el tiempo base según la hora del día
-TRAFICO_HORA = {
-    0: 1.0,   1: 1.0,   2: 1.0,   3: 1.0,   4: 1.0,
-    5: 1.1,   6: 1.4,   7: 1.9,   8: 2.3,   # Mañana pico
-    9: 1.8,   10: 1.5,  11: 1.3,  12: 1.3,
-    13: 1.5,  14: 1.7,  15: 1.6,  16: 1.6,
-    17: 2.0,  18: 2.4,  19: 2.2,  # Tarde pico
-    20: 1.7,  21: 1.4,  22: 1.2,  23: 1.0,
-}
+# Códigos de condición que indican lluvia según wttr.in WMO
+CODIGOS_LLUVIA_LEVE  = {61, 63, 80, 81}     # lluvia ligera / chubascos
+CODIGOS_LLUVIA_FUERTE = {65, 67, 82, 95, 96, 99}  # lluvia fuerte / tormenta
 
-# Factor adicional por lluvia
-FACTOR_LLUVIA_LEVE = 1.25
-FACTOR_LLUVIA_FUERTE = 1.55
 
-# ── URLs BASE PARA TRÁFICO EN TIEMPO REAL ─────────────────────────────────────
-WAZE_BASE = "https://www.waze.com/ul?ll={dest}&navigate=yes&from=ll.{orig}"
-GMAPS_BASE = "https://www.google.com/maps/dir/{orig}/{dest}/"
+def obtener_clima(ciudad_wttr: str) -> dict:
+    """
+    Consulta wttr.in en formato JSON para una ciudad.
+    Retorna dict con: temp_c, descripcion, lluvia_mm, lluvia_nivel, icono, error
+    """
+    url = f"https://wttr.in/{ciudad_wttr}?format=j1"
+    resultado = {
+        "temp_c": None,
+        "descripcion": "Sin datos",
+        "lluvia_mm": 0.0,
+        "lluvia_nivel": "ninguna",   # ninguna | leve | fuerte
+        "icono": "❓",
+        "humedad": None,
+        "viento_kmh": None,
+        "pronostico_horas": [],
+        "error": None,
+    }
+
+    try:
+        resp = requests.get(url, timeout=TIMEOUT, headers={"User-Agent": "TrasladorMetro/1.0"})
+        resp.raise_for_status()
+        data = resp.json()
+
+        actual = data["current_condition"][0]
+        resultado["temp_c"]    = int(actual["temp_C"])
+        resultado["humedad"]   = int(actual["humidity"])
+        resultado["viento_kmh"] = int(actual["windspeedKmph"])
+        resultado["descripcion"] = actual["weatherDesc"][0]["value"]
+        resultado["icono"]     = _icono_clima(resultado["descripcion"])
+
+        # Precipitación acumulada próximas horas (wttr.in campo precipMM)
+        hoy = data["weather"][0]
+        lluvia_total = 0.0
+        pronostico = []
+
+        for hora in hoy["hourly"]:
+            h_val = int(hora["time"]) // 100
+            mm    = float(hora.get("precipMM", 0))
+            lluvia_total += mm
+            desc  = hora["weatherDesc"][0]["value"]
+            pronostico.append({
+                "hora": f"{h_val:02d}:00",
+                "temp":  int(hora["tempC"]),
+                "mm":    mm,
+                "desc":  desc,
+                "icono": _icono_clima(desc),
+            })
+
+        resultado["lluvia_mm"]        = round(lluvia_total, 1)
+        resultado["pronostico_horas"] = pronostico
+        resultado["lluvia_nivel"]     = _nivel_lluvia(lluvia_total, resultado["descripcion"])
+
+    except requests.exceptions.Timeout:
+        resultado["error"] = "⏱️ Tiempo de espera agotado"
+    except requests.exceptions.ConnectionError:
+        resultado["error"] = "🔌 Sin conexión a internet"
+    except Exception as e:
+        resultado["error"] = f"⚠️ Error: {str(e)[:60]}"
+
+    return resultado
+
+
+def _nivel_lluvia(mm: float, descripcion: str) -> str:
+    """Determina nivel de lluvia según mm acumulados y descripción."""
+    desc_lower = descripcion.lower()
+    palabras_fuerte = ["heavy", "thunder", "storm", "torrential", "blizzard", "fuerte", "tormenta"]
+    palabras_leve   = ["light", "drizzle", "rain", "shower", "llovizna", "lluvia", "chubasco"]
+
+    if any(p in desc_lower for p in palabras_fuerte) or mm > 10:
+        return "fuerte"
+    if any(p in desc_lower for p in palabras_leve) or mm > 2:
+        return "leve"
+    return "ninguna"
+
+
+def _icono_clima(desc: str) -> str:
+    """Mapea descripción en inglés/español a emoji."""
+    d = desc.lower()
+    if any(k in d for k in ["thunder", "storm", "tormenta"]):  return "⛈️"
+    if any(k in d for k in ["heavy rain", "torrential"]):       return "🌧️"
+    if any(k in d for k in ["light rain", "drizzle", "llovizna"]): return "🌦️"
+    if any(k in d for k in ["shower", "rain", "lluvia", "chubasco"]): return "🌧️"
+    if any(k in d for k in ["fog", "mist", "niebla", "neblina"]):    return "🌫️"
+    if any(k in d for k in ["overcast", "nublado", "cloudy"]):       return "☁️"
+    if any(k in d for k in ["partly", "parcial"]):                   return "⛅"
+    if any(k in d for k in ["clear", "sunny", "despejado", "sol"]):  return "☀️"
+    return "🌡️"
+
+
+def alerta_lluvia(nivel: str) -> Optional[str]:
+    """Devuelve mensaje de alerta si hay lluvia significativa."""
+    if nivel == "fuerte":
+        return "🚨 LLUVIA FUERTE esperada — considera salir antes o retrasar el viaje 30-45 min"
+    if nivel == "leve":
+        return "🌦️ Lluvia leve posible — lleva paraguas y suma ~15 min al tiempo estimado"
+    return None
